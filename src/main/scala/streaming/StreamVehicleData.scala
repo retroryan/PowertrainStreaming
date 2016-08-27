@@ -8,7 +8,7 @@ import java.sql.Timestamp
 
 import kafka.serializer.StringDecoder
 import org.apache.spark.sql.SQLContext
-import org.apache.spark.streaming.kafka.KafkaUtils
+import org.apache.spark.streaming.kafka.{KafkaUtils, KafkaRDDPartition}
 import org.apache.spark.streaming.{Seconds, StreamingContext}
 import org.apache.spark.{SparkConf, SparkContext}
 
@@ -16,6 +16,12 @@ import org.apache.spark.{SparkConf, SparkContext}
 object StreamVehicleData {
   def main(args: Array[String]) {
     val sparkConf = new SparkConf()
+
+//  Added for local debugging in IntelliJ
+//        .setMaster("local[1]")
+//        .setAppName("VehicleDataTest")
+//        .set("spark.cassandra.connection.host", "127.0.0.1")
+
     val contextDebugStr: String = sparkConf.toDebugString
     System.out.println("contextDebugStr = " + contextDebugStr)
 
@@ -64,13 +70,13 @@ object StreamVehicleData {
     splitArray.filter(data => data(0) == "location")
       .map { data =>
         println(s"vehicle location: ${data(1)}")
-        VehicleLocation(data(1), data(2), data(3), data(4).toDouble, data(5).toDouble, new Timestamp(data(6).toLong), new Timestamp(data(7).toLong), data(8))
+        VehicleLocation(data(1), data(2), data(3), data(4).toDouble, data(5).toDouble, new Timestamp(data(6).toLong), new Timestamp(data(7).toLong), data(8), data(9).toInt)
       }
       .saveToCassandra("vehicle_tracking_app", "vehicle_stats")
 
     splitArray.filter(data => data(0) == "event").map { data =>
         println(s"vehicle event: ${data(1)}")
-        VehicleEvent(data(1), data(2), data(3), new Timestamp(data(4).toLong), new Timestamp(data(5).toLong))
+        VehicleEvent(data(1), data(2), data(3), new Timestamp(data(4).toLong), new Timestamp(data(5).toLong), data(6).toInt)
       }
       .saveToCassandra("vehicle_tracking_app", "vehicle_events")
 
