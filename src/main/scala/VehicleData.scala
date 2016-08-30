@@ -1,5 +1,3 @@
-package streaming
-
 import java.sql.Timestamp
 
 sealed trait VehicleUpdate
