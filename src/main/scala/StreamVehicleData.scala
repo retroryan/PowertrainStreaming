@@ -18,19 +18,24 @@ object StreamVehicleData {
   def main(args: Array[String]) {
 
     val configValues = initialize()
-    initialize_graph(configValues.get("dse_host").get, configValues.get("graph_name").get)
 
-
-    val session = get_dse_session(configValues.get("dse_host").get, configValues.get("graph_name").get)
-    initialize_schema(session, "schema")
-    session.close()
 
     val sparkConf = new SparkConf()
 
-//  Added for local debugging in IntelliJ
+    if(configValues.get("debugging").get.toBoolean == true)
+    {
+      sparkConf
         .setMaster("local[1]")
         .setAppName(configValues.get("graph_name").get)
         .set("spark.cassandra.connection.host", configValues.get("dse_host").get)
+      // Creates the graph if it does not exist
+      initialize_graph(configValues.get("dse_host").get, configValues.get("graph_name").get)
+      // Drops the schema and recreates it
+      val session = get_dse_session(configValues.get("dse_host").get, configValues.get("graph_name").get)
+      initialize_schema(session, "schema")
+      session.close()
+    }
+
 
     val contextDebugStr: String = sparkConf.toDebugString
     System.out.println("contextDebugStr = " + contextDebugStr)
@@ -94,7 +99,8 @@ object StreamVehicleData {
       event_partitions.foreachPartition(events => {
         if(!events.isEmpty) {
           val session = get_dse_session(configValues.get("dse_host").get, configValues.get("graph_name").get)
-          val create_event = new SimpleGraphStatement("""
+          val create_event = new SimpleGraphStatement(
+            """
             graph.addVertex(label, 'powertrain_events',
                             'vehicle_id', vehicle_id,
                             'time_period', time_period,
@@ -104,7 +110,7 @@ object StreamVehicleData {
                             'elapsed_time', elapsed_time)
           """)
           val create_event_edge = new SimpleGraphStatement(
-              "def event = g.V(event_id).next()\n" +
+            "def event = g.V(event_id).next()\n" +
               "def user = g.V().hasLabel('github_user').has('account', account).next()\n" +
               "user.addEdge('has_events', event)"
           )
@@ -127,7 +133,7 @@ object StreamVehicleData {
               session.executeGraph(create_event_edge)
             }
           })
-
+        }
 
       })
     })
@@ -148,10 +154,12 @@ object StreamVehicleData {
       "graph_name" -> appConfig.getString("appConfig.graph_name"),
       "dse_host" -> appConfig.getString("appConfig.dse_host"),
       "spark_master" -> appConfig.getString("appConfig.spark_master"),
-      "spark_name" -> appConfig.getString("appConfig.spark_name")
+      "spark_name" -> appConfig.getString("appConfig.spark_name"),
+      "debugging" -> appConfig.getString("appConfig.debugging")
     )
   }
   def initialize_schema(dseSession: DseSession, schema_file: String): Boolean ={
+    dseSession.executeGraph("schema.clear()")
     val schema = scala.io.Source.fromFile(getClass().getResource(schema_file).getFile()).getLines()foreach(line => {
       dseSession.executeGraph(line)
     })
@@ -163,7 +171,7 @@ object StreamVehicleData {
     dseSession.executeGraph(new SimpleGraphStatement(
       "system.graph(graph_name).ifNotExists().create()"
     )
-      .set("graph_name", graph_name))
+    .set("graph_name", graph_name))
 
     return true
   }

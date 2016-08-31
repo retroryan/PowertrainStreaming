@@ -1,7 +1,6 @@
 //system.graph('summitDemo').option("graph.replication_config").set("{'class' : 'NetworkTopologyStrategy', 'Analytics + Graph' : 3, 'Cassandra + Graph' : 3 ,'Search + Graph' : 3}").ifNotExists().create()
 //system.graph('summitDemo').ifNotExists().create()
 
-schema.clear()
 schema.config().option('graph.schema_mode').set('Development')
 
 
