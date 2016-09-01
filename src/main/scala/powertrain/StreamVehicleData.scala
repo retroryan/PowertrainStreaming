@@ -6,8 +6,8 @@ package powertrain
 
 import java.sql.Timestamp
 
-import com.datastax.driver.dse.DseSession
-import com.datastax.driver.dse.graph.SimpleGraphStatement
+import com.datastax.driver.dse.graph.{GraphOptions, SimpleGraphStatement}
+import com.datastax.driver.dse.{DseCluster, DseSession}
 import kafka.serializer.StringDecoder
 import org.apache.log4j.Logger
 import org.apache.spark.sql.SQLContext
@@ -23,23 +23,23 @@ object StreamVehicleData {
 
   def main(args: Array[String]) {
 
-    val logger: Logger = Logger.getLogger("StreamVehicleData")
-
     val sparkConf = new SparkConf()
     val debug = sparkConf.get("spark.debugging", "false").toBoolean
     val graph_name = sparkConf.get("spark.graph_name")
     val dse_host = sparkConf.get("spark.dse_host")
 
-    if (debug) {
-      logger.info("WARNING!!! Running in local debug mode!  Initializing graph schema")
+    val localLogger = Logger.getLogger("StreamVehicleData")
 
-     /*
-        with dse spark submit these are all set for you.  Do they need to be set for local development?
-        sparkConf
-        .setMaster("local[1]")
-        .setAppName(graph_name)
-        .set("spark.cassandra.connection.host", "dse_host")
-       */
+    if (debug) {
+      localLogger.info("WARNING!!! Running in local debug mode!  Initializing graph schema")
+
+      /*
+         with dse spark submit these are all set for you.  Do they need to be set for local development?
+         sparkConf
+         .setMaster("local[1]")
+         .setAppName(graph_name)
+         .set("spark.cassandra.connection.host", "dse_host")
+        */
 
       // Creates the graph if it does not exist
       initialize_graph(dse_host, graph_name)
@@ -51,11 +51,11 @@ object StreamVehicleData {
 
 
     val contextDebugStr: String = sparkConf.toDebugString
-    logger.info("contextDebugStr = " + contextDebugStr)
+    localLogger.info("contextDebugStr = " + contextDebugStr)
 
     def createStreamingContext(): StreamingContext = {
       @transient val newSsc = new StreamingContext(sparkConf, Seconds(1))
-      logger.info(s"Creating new StreamingContext $newSsc")
+      localLogger.info(s"Creating new StreamingContext $newSsc")
       newSsc
     }
 
@@ -75,10 +75,10 @@ object StreamVehicleData {
     val topics: Set[String] = topicsArg.split(",").map(_.trim).toSet
     val kafkaParams = Map[String, String]("metadata.broker.list" -> brokers)
 
-    logger.info(s"connecting to brokers: $brokers")
-    logger.info(s"sparkStreamingContext: $sparkStreamingContext")
-    logger.info(s"kafkaParams: $kafkaParams")
-    logger.info(s"topics: $topics")
+    localLogger.info(s"connecting to brokers: $brokers")
+    localLogger.info(s"sparkStreamingContext: $sparkStreamingContext")
+    localLogger.info(s"kafkaParams: $kafkaParams")
+    localLogger.info(s"topics: $topics")
 
 
     import com.datastax.spark.connector.streaming._
@@ -89,6 +89,7 @@ object StreamVehicleData {
     val splitArray = rawVehicleStream.map { case (key, rawVehicleStr) =>
       val strings = rawVehicleStr.split(",")
 
+      val logger = Logger.getLogger("StreamVehicleData")
       logger.info(s"update type: ${strings(0)}")
       println(s"PRNT update type: ${strings(0)}")
       strings
@@ -96,6 +97,7 @@ object StreamVehicleData {
 
     splitArray.filter(data => data(0) == "location")
       .map { data =>
+        val logger = Logger.getLogger("StreamVehicleData")
         logger.info(s"vehicle location: ${data(1)}")
         println(s"PRNT vehicle location: ${data(1)}")
         VehicleLocation(data(1), data(2), data(3), data(4).toDouble, data(5).toDouble, new Timestamp(data(6).toLong), new Timestamp(data(7).toLong), data(8), data(9).toInt)
@@ -105,7 +107,7 @@ object StreamVehicleData {
 
 
     val vehicleEventsStream: DStream[VehicleEvent] = splitArray.filter(data => data(0) == "event").map { data =>
-      VehicleEvent(vehicle_id = data(1), event_name = data(2), event_value = data(3), time_period =  new Timestamp(data(4).toLong), collect_time = new Timestamp(data(5).toLong), elapsed_time = data(6).toInt)
+      VehicleEvent(vehicle_id = data(1), event_name = data(2), event_value = data(3), time_period = new Timestamp(data(4).toLong), collect_time = new Timestamp(data(5).toLong), elapsed_time = data(6).toInt)
     }
 
     vehicleEventsStream
@@ -130,7 +132,7 @@ object StreamVehicleData {
               "def user = g.V().hasLabel('github_user').has('account', account).next()\n" +
               "user.addEdge('has_events', event)"
           )
-
+          val logger = Logger.getLogger("StreamVehicleData")
           events.foreach(vehicleEvent => {
             if (vehicleEvent.event_name == "lap" || vehicleEvent.event_name == "finish") {
               create_event
@@ -169,7 +171,11 @@ object StreamVehicleData {
   }
 
   def get_dse_session(dse_host: String, graph_name: String): DseSession = {
-    val dseCluster = new DseJavaDriverWrapper().CreateNewCluster(dse_host, graph_name)
+    val dseCluster = if (graph_name ne "")
+      new DseCluster.Builder().addContactPoint(dse_host).withGraphOptions(new GraphOptions().setGraphName(graph_name)).build
+    else
+      new DseCluster.Builder().addContactPoint(dse_host).build
+
     dseCluster.connect()
   }
 
@@ -182,12 +188,10 @@ object StreamVehicleData {
   }
 
   def initialize_graph(dse_host: String, graph_name: String): Boolean = {
-    val dseCluster = new DseJavaDriverWrapper().CreateNewCluster(dse_host, "")
-    val dseSession = dseCluster.connect()
+    val dseSession = get_dse_session(dse_host, graph_name)
     dseSession.executeGraph(new SimpleGraphStatement(
       "system.graph(graph_name).ifNotExists().create()"
-    )
-      .set("graph_name", graph_name))
+    ).set("graph_name", graph_name))
 
     true
   }
