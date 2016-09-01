@@ -1,3 +1,5 @@
+package powertrain
+
 import java.sql.Timestamp
 
 sealed trait VehicleUpdate

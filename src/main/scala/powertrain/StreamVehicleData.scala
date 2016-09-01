@@ -1,3 +1,5 @@
+package powertrain
+
 /**
   * Created by sebastianestevez on 6/1/16.
   */
@@ -7,13 +9,12 @@ import java.sql.Timestamp
 import com.datastax.driver.dse.DseSession
 import com.datastax.driver.dse.graph.SimpleGraphStatement
 import kafka.serializer.StringDecoder
+import org.apache.log4j.Logger
 import org.apache.spark.sql.SQLContext
 import org.apache.spark.streaming.dstream.DStream
 import org.apache.spark.streaming.kafka.KafkaUtils
 import org.apache.spark.streaming.{Seconds, StreamingContext}
 import org.apache.spark.{SparkConf, SparkContext}
-
-import org.apache.log4j.{Level, Logger}
 
 
 object StreamVehicleData {
@@ -89,12 +90,14 @@ object StreamVehicleData {
       val strings = rawVehicleStr.split(",")
 
       logger.info(s"update type: ${strings(0)}")
+      println(s"PRNT update type: ${strings(0)}")
       strings
     }
 
     splitArray.filter(data => data(0) == "location")
       .map { data =>
         logger.info(s"vehicle location: ${data(1)}")
+        println(s"PRNT vehicle location: ${data(1)}")
         VehicleLocation(data(1), data(2), data(3), data(4).toDouble, data(5).toDouble, new Timestamp(data(6).toLong), new Timestamp(data(7).toLong), data(8), data(9).toInt)
       }
       .saveToCassandra("vehicle_tracking_app", "vehicle_stats")
