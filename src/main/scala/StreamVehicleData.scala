@@ -15,6 +15,9 @@ import org.apache.spark.{SparkConf, SparkContext}
 
 
 object StreamVehicleData {
+
+  def check(x:Int) = if (x == 1) "Peyton" else "Ryan"
+
   def main(args: Array[String]) {
 
     val configValues = initialize()
@@ -22,16 +25,16 @@ object StreamVehicleData {
 
     val sparkConf = new SparkConf()
 
-    if(configValues.get("debugging").get.toBoolean == true)
+    if(configValues.getOrElse("debugging", "false").toBoolean)
     {
       sparkConf
         .setMaster("local[1]")
-        .setAppName(configValues.get("graph_name").get)
-        .set("spark.cassandra.connection.host", configValues.get("dse_host").get)
+        .setAppName(configValues("graph_name"))
+        .set("spark.cassandra.connection.host", configValues("dse_host"))
       // Creates the graph if it does not exist
-      initialize_graph(configValues.get("dse_host").get, configValues.get("graph_name").get)
+      initialize_graph(configValues("dse_host"), configValues("graph_name"))
       // Drops the schema and recreates it
-      val session = get_dse_session(configValues.get("dse_host").get, configValues.get("graph_name").get)
+      val session = get_dse_session(configValues("dse_host"), configValues("graph_name"))
       initialize_schema(session, "schema")
       session.close()
     }
@@ -56,14 +59,13 @@ object StreamVehicleData {
 
     //val topicsArg = "vehicle_events,vehicle_status"
     val topicsArg = "vehicle_events"
-    val brokers = "localhost:9092"
+    val brokers = configValues.getOrElse("kafka_brokers", "localhost:9092")
+    //val brokers = "localhost:9092"
     val debugOutput = true
 
 
     val topics: Set[String] = topicsArg.split(",").map(_.trim).toSet
     val kafkaParams = Map[String, String]("metadata.broker.list" -> brokers)
-    //val kafkaParams = Map[String, String]("metadata.broker.list" -> brokers)
-
 
     println(s"connecting to brokers: $brokers")
     println(s"sparkStreamingContext: $sparkStreamingContext")
@@ -143,19 +145,20 @@ object StreamVehicleData {
   }
   def get_dse_session(dse_host: String, graph_name: String): DseSession = {
     val dseCluster = new DseJavaDriverWrapper().CreateNewCluster(dse_host, graph_name)
-    return dseCluster.connect()
+    dseCluster.connect()
   }
   // Initialization
   def initialize(): Map[String, String] = {
     // Load Configuration Properties
-    val appConfig = ConfigFactory.load();
+    val appConfig = ConfigFactory.load()
 
-    return Map(
+    Map(
       "graph_name" -> appConfig.getString("appConfig.graph_name"),
       "dse_host" -> appConfig.getString("appConfig.dse_host"),
       "spark_master" -> appConfig.getString("appConfig.spark_master"),
       "spark_name" -> appConfig.getString("appConfig.spark_name"),
-      "debugging" -> appConfig.getString("appConfig.debugging")
+      "debugging" -> appConfig.getString("appConfig.debugging"),
+      "kafka_brokers" -> appConfig.getString("appConfig.kafka_brokers")
     )
   }
   def initialize_schema(dseSession: DseSession, schema_file: String): Boolean ={
@@ -163,7 +166,7 @@ object StreamVehicleData {
     val schema = scala.io.Source.fromFile(getClass().getResource(schema_file).getFile()).getLines()foreach(line => {
       dseSession.executeGraph(line)
     })
-    return true
+    true
   }
   def initialize_graph(dse_host: String, graph_name: String): Boolean ={
     val dseCluster = new DseJavaDriverWrapper().CreateNewCluster(dse_host, "")
@@ -173,6 +176,6 @@ object StreamVehicleData {
     )
     .set("graph_name", graph_name))
 
-    return true
+    true
   }
 }
