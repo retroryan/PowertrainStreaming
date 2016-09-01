@@ -1,51 +1,60 @@
 /**
- * Created by sebastianestevez on 6/1/16.
- */
+  * Created by sebastianestevez on 6/1/16.
+  */
 
 import java.sql.Timestamp
 
 import com.datastax.driver.dse.DseSession
 import com.datastax.driver.dse.graph.SimpleGraphStatement
-import com.typesafe.config.ConfigFactory
 import kafka.serializer.StringDecoder
 import org.apache.spark.sql.SQLContext
+import org.apache.spark.streaming.dstream.DStream
 import org.apache.spark.streaming.kafka.KafkaUtils
 import org.apache.spark.streaming.{Seconds, StreamingContext}
 import org.apache.spark.{SparkConf, SparkContext}
 
+import org.apache.log4j.{Level, Logger}
+
 
 object StreamVehicleData {
 
-  def check(x:Int) = if (x == 1) "Peyton" else "Ryan"
+  def check(x: Int) = if (x == 1) "Peyton" else "Ryan"
 
   def main(args: Array[String]) {
 
-    val configValues = initialize()
-
+    val logger: Logger = Logger.getLogger("StreamVehicleData")
 
     val sparkConf = new SparkConf()
+    val debug = sparkConf.get("spark.debugging", "false").toBoolean
+    val graph_name = sparkConf.get("spark.graph_name")
+    val dse_host = sparkConf.get("spark.dse_host")
 
-    if(configValues.getOrElse("debugging", "false").toBoolean)
-    {
-      sparkConf
+    if (debug) {
+      logger.info("WARNING!!! Running in local debug mode!  Initializing graph schema")
+
+     /*
+        with dse spark submit these are all set for you.  Do they need to be set for local development?
+        sparkConf
         .setMaster("local[1]")
-        .setAppName(configValues("graph_name"))
-        .set("spark.cassandra.connection.host", configValues("dse_host"))
+        .setAppName(graph_name)
+        .set("spark.cassandra.connection.host", "dse_host")
+       */
+
       // Creates the graph if it does not exist
-      initialize_graph(configValues("dse_host"), configValues("graph_name"))
+      initialize_graph(dse_host, graph_name)
       // Drops the schema and recreates it
-      val session = get_dse_session(configValues("dse_host"), configValues("graph_name"))
+      val session = get_dse_session(dse_host, graph_name)
       initialize_schema(session, "schema")
       session.close()
     }
 
 
     val contextDebugStr: String = sparkConf.toDebugString
-    System.out.println("contextDebugStr = " + contextDebugStr)
+    logger.info("contextDebugStr = " + contextDebugStr)
 
     def createStreamingContext(): StreamingContext = {
       @transient val newSsc = new StreamingContext(sparkConf, Seconds(1))
-      println(s"Creating new StreamingContext $newSsc")
+      logger.info(s"Creating new StreamingContext $newSsc")
       newSsc
     }
 
@@ -57,20 +66,18 @@ object StreamVehicleData {
     //not checkpointing
     //ssc.checkpoint("/ratingsCP")
 
-    //val topicsArg = "vehicle_events,vehicle_status"
     val topicsArg = "vehicle_events"
-    val brokers = configValues.getOrElse("kafka_brokers", "localhost:9092")
-    //val brokers = "localhost:9092"
+    val brokers = sparkConf.get("spark.kafka_brokers", "localhost:9092")
     val debugOutput = true
 
 
     val topics: Set[String] = topicsArg.split(",").map(_.trim).toSet
     val kafkaParams = Map[String, String]("metadata.broker.list" -> brokers)
 
-    println(s"connecting to brokers: $brokers")
-    println(s"sparkStreamingContext: $sparkStreamingContext")
-    println(s"kafkaParams: $kafkaParams")
-    println(s"topics: $topics")
+    logger.info(s"connecting to brokers: $brokers")
+    logger.info(s"sparkStreamingContext: $sparkStreamingContext")
+    logger.info(s"kafkaParams: $kafkaParams")
+    logger.info(s"topics: $topics")
 
 
     import com.datastax.spark.connector.streaming._
@@ -79,28 +86,32 @@ object StreamVehicleData {
     val rawVehicleStream = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](sparkStreamingContext, kafkaParams, topics)
 
     val splitArray = rawVehicleStream.map { case (key, rawVehicleStr) =>
-      val strings= rawVehicleStr.split(",")
+      val strings = rawVehicleStr.split(",")
 
-      println(s"update type: ${strings(0)}")
+      logger.info(s"update type: ${strings(0)}")
       strings
     }
+
     splitArray.filter(data => data(0) == "location")
       .map { data =>
-        println(s"vehicle location: ${data(1)}")
+        logger.info(s"vehicle location: ${data(1)}")
         VehicleLocation(data(1), data(2), data(3), data(4).toDouble, data(5).toDouble, new Timestamp(data(6).toLong), new Timestamp(data(7).toLong), data(8), data(9).toInt)
       }
       .saveToCassandra("vehicle_tracking_app", "vehicle_stats")
 
 
 
-    splitArray.filter(data => data(0) == "event").map { data =>
-        VehicleEvent(data(1), data(2), data(3), new Timestamp(data(4).toLong), new Timestamp(data(5).toLong), data(6).toInt)
-      }
+    val vehicleEventsStream: DStream[VehicleEvent] = splitArray.filter(data => data(0) == "event").map { data =>
+      VehicleEvent(vehicle_id = data(1), event_name = data(2), event_value = data(3), time_period =  new Timestamp(data(4).toLong), collect_time = new Timestamp(data(5).toLong), elapsed_time = data(6).toInt)
+    }
+
+    vehicleEventsStream
       .saveToCassandra("vehicle_tracking_app", "vehicle_events")
-    splitArray.filter(data => data(0) == "event").foreachRDD( event_partitions => {
+
+    vehicleEventsStream.foreachRDD(event_partitions => {
       event_partitions.foreachPartition(events => {
-        if(!events.isEmpty) {
-          val session = get_dse_session(configValues.get("dse_host").get, configValues.get("graph_name").get)
+        if (events.nonEmpty) {
+          val session = get_dse_session(dse_host, graph_name)
           val create_event = new SimpleGraphStatement(
             """
             graph.addVertex(label, 'powertrain_events',
@@ -110,29 +121,39 @@ object StreamVehicleData {
                             'event_name', event_name,
                             'event_value', event_value,
                             'elapsed_time', elapsed_time)
-          """)
+            """)
           val create_event_edge = new SimpleGraphStatement(
             "def event = g.V(event_id).next()\n" +
               "def user = g.V().hasLabel('github_user').has('account', account).next()\n" +
               "user.addEdge('has_events', event)"
           )
 
-          events.foreach(data => {
-            if(data(2) == "lap" || data(2) == "finish") {
+          events.foreach(vehicleEvent => {
+            if (vehicleEvent.event_name == "lap" || vehicleEvent.event_name == "finish") {
               create_event
-                .set("vehicle_id", data(1))
-                .set("time_period", data(4))
-                .set("collect_time", data(5))
-                .set("event_name", data(2))
-                .set("event_value", data(3))
-                .set("elapsed_time", data(6).toInt)
+                .set("vehicle_id", vehicleEvent.vehicle_id)
+                .set("time_period", vehicleEvent.time_period)
+                .set("collect_time", vehicleEvent.collect_time)
+                .set("event_name", vehicleEvent.event_name)
+                .set("event_value", vehicleEvent.event_value)
+                .set("elapsed_time", vehicleEvent.elapsed_time)
+
+              logger.info(s"create_event query: ${create_event.getQueryString}")
               val lap_event = session.executeGraph(create_event)
+              if (lap_event.getAvailableWithoutFetching > 0) {
+                val vertexId = lap_event.one().asVertex().getId
+                logger.info(s"vertexId: $vertexId")
 
-              create_event_edge
-                .set("event_id", lap_event.one().asVertex().getId)
-                .set("account", data(1))
+                create_event_edge
+                  .set("event_id", vertexId)
+                  .set("account", vehicleEvent.vehicle_id)
 
-              session.executeGraph(create_event_edge)
+                logger.info(s"create_event_edge: ${create_event_edge.getQueryString}")
+                session.executeGraph(create_event_edge)
+              }
+              else {
+                logger.info("Error creating event edge")
+              }
             }
           })
         }
@@ -143,38 +164,27 @@ object StreamVehicleData {
     sparkStreamingContext.start()
     sparkStreamingContext.awaitTermination()
   }
+
   def get_dse_session(dse_host: String, graph_name: String): DseSession = {
     val dseCluster = new DseJavaDriverWrapper().CreateNewCluster(dse_host, graph_name)
     dseCluster.connect()
   }
-  // Initialization
-  def initialize(): Map[String, String] = {
-    // Load Configuration Properties
-    val appConfig = ConfigFactory.load()
 
-    Map(
-      "graph_name" -> appConfig.getString("appConfig.graph_name"),
-      "dse_host" -> appConfig.getString("appConfig.dse_host"),
-      "spark_master" -> appConfig.getString("appConfig.spark_master"),
-      "spark_name" -> appConfig.getString("appConfig.spark_name"),
-      "debugging" -> appConfig.getString("appConfig.debugging"),
-      "kafka_brokers" -> appConfig.getString("appConfig.kafka_brokers")
-    )
-  }
-  def initialize_schema(dseSession: DseSession, schema_file: String): Boolean ={
+  def initialize_schema(dseSession: DseSession, schema_file: String): Boolean = {
     dseSession.executeGraph("schema.clear()")
-    val schema = scala.io.Source.fromFile(getClass().getResource(schema_file).getFile()).getLines()foreach(line => {
+    val schema = scala.io.Source.fromFile(getClass().getResource(schema_file).getFile()).getLines() foreach (line => {
       dseSession.executeGraph(line)
     })
     true
   }
-  def initialize_graph(dse_host: String, graph_name: String): Boolean ={
+
+  def initialize_graph(dse_host: String, graph_name: String): Boolean = {
     val dseCluster = new DseJavaDriverWrapper().CreateNewCluster(dse_host, "")
     val dseSession = dseCluster.connect()
     dseSession.executeGraph(new SimpleGraphStatement(
       "system.graph(graph_name).ifNotExists().create()"
     )
-    .set("graph_name", graph_name))
+      .set("graph_name", graph_name))
 
     true
   }

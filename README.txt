@@ -5,9 +5,18 @@ The spark streaming app ingests data off of kafka, processes it in micro batches
 Build the streaming app
 
 sbt package
-and run from spark submit (DSE must be running with Analytics enabled)
+and run from dse spark-submit (DSE must be running with Analytics enabled)
 
-dse spark-submit --packages org.apache.spark:spark-streaming-kafka_2.10:1.6.1 --class StreamVehicleData target/scala-2.10/streaming-vehicle-app_2.10-1.0-SNAPSHOT.jar 10.0.0.4:9092 ratings true
+LOCAL RUN
+dse spark-submit --packages org.apache.spark:spark-streaming-kafka_2.10:1.6.1 --class StreamVehicleData --properties-file=conf/application.conf target/scala-2.10/streaming-vehicle-app_2.10-1.0-SNAPSHOT.jar
+
+SERVER RUN
+dse spark-submit --packages org.apache.spark:spark-streaming-kafka_2.10:1.6.1 --class StreamVehicleData  --properties-file=application.conf streaming-vehicle-app_2.10-1.0-SNAPSHOT.jar
+
+SERVER RUN with nohup
+nohup dse spark-submit --packages org.apache.spark:spark-streaming-kafka_2.10:1.6.1 --class StreamVehicleData  --properties-file=application.conf streaming-vehicle-app_2.10-1.0-SNAPSHOT.jar 2>&1 1> streaming.log &
+
+
 
 -- Watch the kafka queue:
 
