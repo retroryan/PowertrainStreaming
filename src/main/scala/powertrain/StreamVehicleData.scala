@@ -132,7 +132,7 @@ object StreamVehicleData {
               "user.addEdge('has_events', event)"
           )
           val user_exists = new SimpleGraphStatement("""
-            graph.has('account', account)
+            g.V().has('account', account)
             """)
 
           val logger = Logger.getLogger("StreamVehicleData")
