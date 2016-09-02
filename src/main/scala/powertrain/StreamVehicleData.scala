@@ -138,7 +138,7 @@ object StreamVehicleData {
           val logger = Logger.getLogger("StreamVehicleData")
 
           events.foreach(vehicleEvent => {
-            if (vehicleEvent.event_name == "lap" || vehicleEvent.event_name == "finish") {
+            if (vehicleEvent.event_name == "lap" || vehicleEvent.event_name == "finish" || vehicleEvent.event_name == "crash") {
               val user = session.executeGraph(user_exists.set("account", vehicleEvent.vehicle_id)).one()
               if (user != null) {
                 create_event
