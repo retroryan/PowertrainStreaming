@@ -167,12 +167,12 @@ object StreamVehicleData {
               processUser(session, create_event, create_event_edge, logger, vehicleEvent, user)
             }
             else {
-              logger.info(s"Error query user_exists was empty")
+              logger.info(s"Error query user_exists --> result set was empty")
             }
           }
 
           def onFailure(thrown: Throwable) {
-            logger.info(s"Error running graph query user_exists $create_event")
+            logger.info(s"Error running graph query user_exists ${user_exists.getQueryString}")
           }
         })
       }
@@ -205,7 +205,7 @@ object StreamVehicleData {
         }
 
         def onFailure(thrown: Throwable) {
-          logger.info(s"Error running graph query create_event $create_event")
+          logger.info(s"Error running graph query create_event ${create_event.getQueryString}")
         }
       })
 
