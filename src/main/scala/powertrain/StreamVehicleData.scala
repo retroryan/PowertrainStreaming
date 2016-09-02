@@ -20,6 +20,7 @@ import org.apache.spark.{SparkConf, SparkContext}
 object StreamVehicleData {
 
   def check(x: Int) = if (x == 1) "Peyton" else "Ryan"
+  val localLogger = Logger.getLogger("StreamVehicleData")
 
   def main(args: Array[String]) {
 
@@ -28,7 +29,6 @@ object StreamVehicleData {
     val graph_name = sparkConf.get("spark.graph_name")
     val dse_host = sparkConf.get("spark.dse_host")
 
-    val localLogger = Logger.getLogger("StreamVehicleData")
 
     if (debug) {
       localLogger.info("WARNING!!! Running in local debug mode!  Initializing graph schema")
@@ -85,6 +85,7 @@ object StreamVehicleData {
 
 
     val rawVehicleStream = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](sparkStreamingContext, kafkaParams, topics)
+    rawVehicleStream.print()
 
     val splitArray = rawVehicleStream.map { case (key, rawVehicleStr) =>
       val strings = rawVehicleStr.split(",")
@@ -133,6 +134,7 @@ object StreamVehicleData {
               "user.addEdge('has_events', event)"
           )
           val logger = Logger.getLogger("StreamVehicleData")
+
           events.foreach(vehicleEvent => {
             if (vehicleEvent.event_name == "lap" || vehicleEvent.event_name == "finish") {
               create_event
@@ -165,6 +167,7 @@ object StreamVehicleData {
 
       })
     })
+
     //Kick off
     sparkStreamingContext.start()
     sparkStreamingContext.awaitTermination()
