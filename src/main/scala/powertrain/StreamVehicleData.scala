@@ -85,9 +85,6 @@ object StreamVehicleData {
 
     import com.datastax.spark.connector.streaming._
 
-    val session = get_dse_session(dse_host, graph_name)
-
-
     val rawVehicleStream = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](sparkStreamingContext, kafkaParams, topics)
     rawVehicleStream.print()
 
@@ -108,7 +105,6 @@ object StreamVehicleData {
       .saveToCassandra("vehicle_tracking_app", "vehicle_stats")
 
 
-
     val vehicleEventsStream: DStream[VehicleEvent] = splitArray.filter(data => data(0) == "event").map { data =>
       VehicleEvent(vehicle_id = data(1).toLowerCase, event_name = data(2), event_value = data(3), time_period = new Timestamp(data(4).toLong), collect_time = new Timestamp(data(5).toLong), elapsed_time = data(6).toInt)
     }
@@ -120,8 +116,10 @@ object StreamVehicleData {
     vehicleEventsStream.foreachRDD(event_partitions => {
       event_partitions.foreachPartition(events => {
 
+
+
         if (events.nonEmpty) {
-          processVehicleEventsStream(events, session)
+          processVehicleEventsStream(events, dse_host, graph_name)
         }
 
       })
@@ -132,7 +130,7 @@ object StreamVehicleData {
     sparkStreamingContext.awaitTermination()
   }
 
-  def processVehicleEventsStream(events: Iterator[VehicleEvent], session: DseSession) = {
+  def processVehicleEventsStream(events: Iterator[VehicleEvent], dse_host:String, graph_name:String) = {
 
     val create_event = new SimpleGraphStatement(
       """
@@ -159,8 +157,7 @@ object StreamVehicleData {
 
     events.foreach(vehicleEvent => {
       if (vehicleEvent.event_name == "crash" || vehicleEvent.event_name == "lap" || vehicleEvent.event_name == "finish") {
-
-
+        val session = get_dse_session(dse_host, graph_name)
         val userFuture = session.executeGraphAsync(user_exists.set("account", vehicleEvent.vehicle_id))
 
         Futures.addCallback(userFuture, new FutureCallback[GraphResultSet]() {
