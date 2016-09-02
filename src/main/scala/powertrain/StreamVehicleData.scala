@@ -6,8 +6,9 @@ package powertrain
 
 import java.sql.Timestamp
 
-import com.datastax.driver.dse.graph.{GraphOptions, SimpleGraphStatement}
+import com.datastax.driver.dse.graph.{GraphOptions, GraphResultSet, SimpleGraphStatement}
 import com.datastax.driver.dse.{DseCluster, DseSession}
+import com.google.common.util.concurrent.{FutureCallback, Futures, ListenableFuture, MoreExecutors}
 import kafka.serializer.StringDecoder
 import org.apache.log4j.Logger
 import org.apache.spark.sql.SQLContext
@@ -20,6 +21,7 @@ import org.apache.spark.{SparkConf, SparkContext}
 object StreamVehicleData {
 
   def check(x: Int) = if (x == 1) "Peyton" else "Ryan"
+
   val localLogger = Logger.getLogger("StreamVehicleData")
 
   def main(args: Array[String]) {
@@ -83,6 +85,8 @@ object StreamVehicleData {
 
     import com.datastax.spark.connector.streaming._
 
+    val session = get_dse_session(dse_host, graph_name)
+
 
     val rawVehicleStream = KafkaUtils.createDirectStream[String, String, StringDecoder, StringDecoder](sparkStreamingContext, kafkaParams, topics)
     rawVehicleStream.print()
@@ -99,7 +103,7 @@ object StreamVehicleData {
       .map { data =>
         val logger = Logger.getLogger("StreamVehicleData")
         logger.info(s"vehicle location: ${data(1)}")
-        VehicleLocation(vehicle_id = data(1).toLowerCase, lat_long = data(2), elevation = data(3), speed = data(4).toDouble, acceleration = data(5).toDouble, time_period = new Timestamp(data(6).toLong), collect_time = new Timestamp(data(7).toLong), tile2=data(8), elapsed_time = data(9).toInt)
+        VehicleLocation(vehicle_id = data(1).toLowerCase, lat_long = data(2), elevation = data(3), speed = data(4).toDouble, acceleration = data(5).toDouble, time_period = new Timestamp(data(6).toLong), collect_time = new Timestamp(data(7).toLong), tile2 = data(8), elapsed_time = data(9).toInt)
       }
       .saveToCassandra("vehicle_tracking_app", "vehicle_stats")
 
@@ -112,63 +116,14 @@ object StreamVehicleData {
     vehicleEventsStream
       .saveToCassandra("vehicle_tracking_app", "vehicle_events")
 
+
     vehicleEventsStream.foreachRDD(event_partitions => {
       event_partitions.foreachPartition(events => {
+
         if (events.nonEmpty) {
-          val session = get_dse_session(dse_host, graph_name)
-          val create_event = new SimpleGraphStatement(
-            """
-            graph.addVertex(label, 'powertrain_events',
-                            'vehicle_id', vehicle_id,
-                            'time_period', time_period,
-                            'collect_time', collect_time,
-                            'event_name', event_name,
-                            'event_value', event_value,
-                            'elapsed_time', elapsed_time)
-            """)
-          val create_event_edge = new SimpleGraphStatement(
-            "def event = g.V(event_id).next()\n" +
-              "def user = g.V().hasLabel('github_user').has('account', account).next()\n" +
-              "user.addEdge('has_events', event)"
-          )
-          val user_exists = new SimpleGraphStatement("""
-            g.V().has('account', account)
-            """)
 
-          val logger = Logger.getLogger("StreamVehicleData")
+          processVehicleEventsStream(events, session)
 
-          events.foreach(vehicleEvent => {
-            if (vehicleEvent.event_name == "crash" || vehicleEvent.event_name == "lap" || vehicleEvent.event_name == "finish") {
-
-              val user = session.executeGraph(user_exists.set("account", vehicleEvent.vehicle_id)).one()
-              if (user != null) {
-                create_event
-                  .set("vehicle_id", vehicleEvent.vehicle_id)
-                  .set("time_period", vehicleEvent.time_period)
-                  .set("collect_time", vehicleEvent.collect_time)
-                  .set("event_name", vehicleEvent.event_name)
-                  .set("event_value", vehicleEvent.event_value)
-                  .set("elapsed_time", vehicleEvent.elapsed_time)
-
-                logger.info(s"create_event query: ${create_event.getQueryString}")
-                val lap_event = session.executeGraph(create_event)
-                if (lap_event.getAvailableWithoutFetching > 0) {
-                  val vertexId = lap_event.one().asVertex().getId
-                  logger.info(s"vertexId: $vertexId")
-
-                  create_event_edge
-                    .set("event_id", vertexId)
-                    .set("account", vehicleEvent.vehicle_id)
-
-                  logger.info(s"create_event_edge: ${create_event_edge.getQueryString}")
-                  session.executeGraph(create_event_edge)
-                }
-                else {
-                  logger.info("Error creating event edge")
-                }
-              }
-            }
-          })
         }
 
       })
@@ -178,6 +133,98 @@ object StreamVehicleData {
     sparkStreamingContext.start()
     sparkStreamingContext.awaitTermination()
   }
+
+  def processVehicleEventsStream(events: Iterator[VehicleEvent], session: DseSession) = {
+
+    val create_event = new SimpleGraphStatement(
+      """
+            graph.addVertex(label, 'powertrain_events',
+                            'vehicle_id', vehicle_id,
+                            'time_period', time_period,
+                            'collect_time', collect_time,
+                            'event_name', event_name,
+                            'event_value', event_value,
+                            'elapsed_time', elapsed_time)
+      """)
+
+    val create_event_edge = new SimpleGraphStatement(
+      "def event = g.V(event_id).next()\n" +
+        "def user = g.V().hasLabel('github_user').has('account', account).next()\n" +
+        "user.addEdge('has_events', event)"
+    )
+    val user_exists = new SimpleGraphStatement(
+      """
+            g.V().has('account', account)
+      """)
+
+    val logger = Logger.getLogger("StreamVehicleData")
+
+    events.foreach(vehicleEvent => {
+      if (vehicleEvent.event_name == "crash" || vehicleEvent.event_name == "lap" || vehicleEvent.event_name == "finish") {
+
+        val user = session.executeGraph(user_exists.set("account", vehicleEvent.vehicle_id)).one()
+        if (user != null) {
+          create_event
+            .set("vehicle_id", vehicleEvent.vehicle_id)
+            .set("time_period", vehicleEvent.time_period)
+            .set("collect_time", vehicleEvent.collect_time)
+            .set("event_name", vehicleEvent.event_name)
+            .set("event_value", vehicleEvent.event_value)
+            .set("elapsed_time", vehicleEvent.elapsed_time)
+
+          logger.info(s"create_event query: ${create_event.getQueryString}")
+
+          val lapEventFuture: ListenableFuture[GraphResultSet] = session.executeGraphAsync(create_event)
+
+          Futures.addCallback(lapEventFuture, new FutureCallback[GraphResultSet]() {
+            def onSuccess(graphResultSet: GraphResultSet) {
+              if (graphResultSet.getAvailableWithoutFetching > 0) {
+                processLapEventFuture(session, create_event_edge, logger, vehicleEvent, graphResultSet)
+              }
+              else {
+                logger.info(s"Error graphResultSet was empty")
+              }
+            }
+
+            def onFailure(thrown: Throwable) {
+              logger.info(s"Error running graph query create_event $create_event")
+            }
+          })
+
+        }
+      }
+    })
+  }
+
+
+  def processLapEventFuture(session: DseSession, create_event_edge: SimpleGraphStatement, logger: Logger,
+                            vehicleEvent: VehicleEvent, graphResultSet: GraphResultSet): Unit = {
+
+    val vertexId = graphResultSet.one().asVertex().getId
+    logger.info(s"vertexId: $vertexId")
+
+    create_event_edge
+      .set("event_id", vertexId)
+      .set("account", vehicleEvent.vehicle_id)
+
+    logger.info(s"running create_event_edge: ${create_event_edge.getQueryString}")
+
+    val runnable = createRunnable { () =>
+      try
+        logger.info(s"finished create_event_edge: ${create_event_edge.getQueryString}")
+      catch {
+        case e: Exception =>
+          logger.info(s"Error create_event_edge: ${create_event_edge.getQueryString}")
+      }
+    }
+
+    session.executeGraphAsync(create_event_edge).addListener(runnable, MoreExecutors.sameThreadExecutor)
+  }
+
+  def createRunnable(f: () => Unit): Runnable =
+    new Runnable() {
+      def run() = f()
+    }
 
   def get_dse_session(dse_host: String, graph_name: String): DseSession = {
     val dseCluster = if (graph_name ne "")
