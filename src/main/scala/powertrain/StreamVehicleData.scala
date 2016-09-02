@@ -173,6 +173,7 @@ object StreamVehicleData {
 
           def onFailure(thrown: Throwable) {
             logger.info(s"Error running graph query user_exists ${user_exists.getQueryString}")
+            logger.info(s"Error running graph query user_exists $thrown")
           }
         })
       }
