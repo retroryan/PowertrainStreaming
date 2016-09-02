@@ -133,33 +133,40 @@ object StreamVehicleData {
               "def user = g.V().hasLabel('github_user').has('account', account).next()\n" +
               "user.addEdge('has_events', event)"
           )
+          val user_exists = new SimpleGraphStatement("""
+            graph.has('account', account.toLowerCase())
+            """)
+
           val logger = Logger.getLogger("StreamVehicleData")
 
           events.foreach(vehicleEvent => {
             if (vehicleEvent.event_name == "lap" || vehicleEvent.event_name == "finish") {
-              create_event
-                .set("vehicle_id", vehicleEvent.vehicle_id)
-                .set("time_period", vehicleEvent.time_period)
-                .set("collect_time", vehicleEvent.collect_time)
-                .set("event_name", vehicleEvent.event_name)
-                .set("event_value", vehicleEvent.event_value)
-                .set("elapsed_time", vehicleEvent.elapsed_time)
+              val user = session.executeGraph(user_exists.set("account", vehicleEvent.vehicle_id)).one()
+              if (user != null) {
+                create_event
+                  .set("vehicle_id", vehicleEvent.vehicle_id)
+                  .set("time_period", vehicleEvent.time_period)
+                  .set("collect_time", vehicleEvent.collect_time)
+                  .set("event_name", vehicleEvent.event_name)
+                  .set("event_value", vehicleEvent.event_value)
+                  .set("elapsed_time", vehicleEvent.elapsed_time)
 
-              logger.info(s"create_event query: ${create_event.getQueryString}")
-              val lap_event = session.executeGraph(create_event)
-              if (lap_event.getAvailableWithoutFetching > 0) {
-                val vertexId = lap_event.one().asVertex().getId
-                logger.info(s"vertexId: $vertexId")
+                logger.info(s"create_event query: ${create_event.getQueryString}")
+                val lap_event = session.executeGraph(create_event)
+                if (lap_event.getAvailableWithoutFetching > 0) {
+                  val vertexId = lap_event.one().asVertex().getId
+                  logger.info(s"vertexId: $vertexId")
 
-                create_event_edge
-                  .set("event_id", vertexId)
-                  .set("account", vehicleEvent.vehicle_id)
+                  create_event_edge
+                    .set("event_id", vertexId)
+                    .set("account", vehicleEvent.vehicle_id)
 
-                logger.info(s"create_event_edge: ${create_event_edge.getQueryString}")
-                session.executeGraph(create_event_edge)
-              }
-              else {
-                logger.info("Error creating event edge")
+                  logger.info(s"create_event_edge: ${create_event_edge.getQueryString}")
+                  session.executeGraph(create_event_edge)
+                }
+                else {
+                  logger.info("Error creating event edge")
+                }
               }
             }
           })
