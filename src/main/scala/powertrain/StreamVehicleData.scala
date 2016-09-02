@@ -132,13 +132,14 @@ object StreamVehicleData {
               "user.addEdge('has_events', event)"
           )
           val user_exists = new SimpleGraphStatement("""
-            graph.has('account', account)
+            g.V().has('account', account)
             """)
 
           val logger = Logger.getLogger("StreamVehicleData")
 
           events.foreach(vehicleEvent => {
             if (vehicleEvent.event_name == "crash" || vehicleEvent.event_name == "lap" || vehicleEvent.event_name == "finish") {
+
               val user = session.executeGraph(user_exists.set("account", vehicleEvent.vehicle_id)).one()
               if (user != null) {
                 create_event
