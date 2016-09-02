@@ -92,7 +92,6 @@ object StreamVehicleData {
 
       val logger = Logger.getLogger("StreamVehicleData")
       logger.info(s"update type: ${strings(0)}")
-      println(s"PRNT update type: ${strings(0)}")
       strings
     }
 
@@ -100,15 +99,14 @@ object StreamVehicleData {
       .map { data =>
         val logger = Logger.getLogger("StreamVehicleData")
         logger.info(s"vehicle location: ${data(1)}")
-        println(s"PRNT vehicle location: ${data(1)}")
-        VehicleLocation(data(1), data(2), data(3), data(4).toDouble, data(5).toDouble, new Timestamp(data(6).toLong), new Timestamp(data(7).toLong), data(8), data(9).toInt)
+        VehicleLocation(vehicle_id = data(1).toLowerCase, lat_long = data(2), elevation = data(3), speed = data(4).toDouble, acceleration = data(5).toDouble, time_period = new Timestamp(data(6).toLong), collect_time = new Timestamp(data(7).toLong), tile2=data(8), elapsed_time = data(9).toInt)
       }
       .saveToCassandra("vehicle_tracking_app", "vehicle_stats")
 
 
 
     val vehicleEventsStream: DStream[VehicleEvent] = splitArray.filter(data => data(0) == "event").map { data =>
-      VehicleEvent(vehicle_id = data(1), event_name = data(2), event_value = data(3), time_period = new Timestamp(data(4).toLong), collect_time = new Timestamp(data(5).toLong), elapsed_time = data(6).toInt)
+      VehicleEvent(vehicle_id = data(1).toLowerCase, event_name = data(2), event_value = data(3), time_period = new Timestamp(data(4).toLong), collect_time = new Timestamp(data(5).toLong), elapsed_time = data(6).toInt)
     }
 
     vehicleEventsStream

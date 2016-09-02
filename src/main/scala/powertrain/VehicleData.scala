@@ -17,6 +17,6 @@ case class VehicleLocation(vehicle_id: String, lat_long:String, elevation:String
 
 case class VehicleEvent(vehicle_id:String, event_name:String, event_value:String, time_period:Timestamp, collect_time:Timestamp,elapsed_time: Int, solr_query:String = "") extends VehicleUpdate {
   override def toString:String = {
-    s"$vehicle_id,$event_name,$event_value,${time_period.getTime},${collect_time.getTime},${elapsed_time}"
+    s"${vehicle_id.toLowerCase},$event_name,$event_value,${time_period.getTime},${collect_time.getTime},${elapsed_time}"
   }
 }
