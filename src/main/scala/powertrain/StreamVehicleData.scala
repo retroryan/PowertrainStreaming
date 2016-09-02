@@ -6,7 +6,7 @@ package powertrain
 
 import java.sql.Timestamp
 
-import com.datastax.driver.dse.graph.{GraphOptions, GraphResultSet, SimpleGraphStatement}
+import com.datastax.driver.dse.graph.{GraphNode, GraphOptions, GraphResultSet, SimpleGraphStatement}
 import com.datastax.driver.dse.{DseCluster, DseSession}
 import com.google.common.util.concurrent.{FutureCallback, Futures, ListenableFuture, MoreExecutors}
 import kafka.serializer.StringDecoder
@@ -121,9 +121,7 @@ object StreamVehicleData {
       event_partitions.foreachPartition(events => {
 
         if (events.nonEmpty) {
-
           processVehicleEventsStream(events, session)
-
         }
 
       })
@@ -162,40 +160,60 @@ object StreamVehicleData {
     events.foreach(vehicleEvent => {
       if (vehicleEvent.event_name == "crash" || vehicleEvent.event_name == "lap" || vehicleEvent.event_name == "finish") {
 
-        val user = session.executeGraph(user_exists.set("account", vehicleEvent.vehicle_id)).one()
-        if (user != null) {
-          create_event
-            .set("vehicle_id", vehicleEvent.vehicle_id)
-            .set("time_period", vehicleEvent.time_period)
-            .set("collect_time", vehicleEvent.collect_time)
-            .set("event_name", vehicleEvent.event_name)
-            .set("event_value", vehicleEvent.event_value)
-            .set("elapsed_time", vehicleEvent.elapsed_time)
 
-          logger.info(s"create_event query: ${create_event.getQueryString}")
+        val userFuture = session.executeGraphAsync(user_exists.set("account", vehicleEvent.vehicle_id))
 
-          val lapEventFuture: ListenableFuture[GraphResultSet] = session.executeGraphAsync(create_event)
-
-          Futures.addCallback(lapEventFuture, new FutureCallback[GraphResultSet]() {
-            def onSuccess(graphResultSet: GraphResultSet) {
-              if (graphResultSet.getAvailableWithoutFetching > 0) {
-                processLapEventFuture(session, create_event_edge, logger, vehicleEvent, graphResultSet)
-              }
-              else {
-                logger.info(s"Error graphResultSet was empty")
-              }
+        Futures.addCallback(userFuture, new FutureCallback[GraphResultSet]() {
+          def onSuccess(graphResultSet: GraphResultSet) {
+            if (graphResultSet.getAvailableWithoutFetching > 0) {
+              val user = graphResultSet.one()
+              processUser(session, create_event, create_event_edge, logger, vehicleEvent, user)
             }
-
-            def onFailure(thrown: Throwable) {
-              logger.info(s"Error running graph query create_event $create_event")
+            else {
+              logger.info(s"Error query user_exists was empty")
             }
-          })
+          }
 
-        }
+          def onFailure(thrown: Throwable) {
+            logger.info(s"Error running graph query user_exists $create_event")
+          }
+        })
       }
     })
   }
 
+
+  def processUser(session: DseSession, create_event: SimpleGraphStatement, create_event_edge: SimpleGraphStatement, logger: Logger, vehicleEvent: VehicleEvent, user: GraphNode): Unit = {
+    if (user != null) {
+      create_event
+        .set("vehicle_id", vehicleEvent.vehicle_id)
+        .set("time_period", vehicleEvent.time_period)
+        .set("collect_time", vehicleEvent.collect_time)
+        .set("event_name", vehicleEvent.event_name)
+        .set("event_value", vehicleEvent.event_value)
+        .set("elapsed_time", vehicleEvent.elapsed_time)
+
+      logger.info(s"create_event query: ${create_event.getQueryString}")
+
+      val lapEventFuture: ListenableFuture[GraphResultSet] = session.executeGraphAsync(create_event)
+
+      Futures.addCallback(lapEventFuture, new FutureCallback[GraphResultSet]() {
+        def onSuccess(graphResultSet: GraphResultSet) {
+          if (graphResultSet.getAvailableWithoutFetching > 0) {
+            processLapEventFuture(session, create_event_edge, logger, vehicleEvent, graphResultSet)
+          }
+          else {
+            logger.info(s"Error graphResultSet was empty")
+          }
+        }
+
+        def onFailure(thrown: Throwable) {
+          logger.info(s"Error running graph query create_event $create_event")
+        }
+      })
+
+    }
+  }
 
   def processLapEventFuture(session: DseSession, create_event_edge: SimpleGraphStatement, logger: Logger,
                             vehicleEvent: VehicleEvent, graphResultSet: GraphResultSet): Unit = {
