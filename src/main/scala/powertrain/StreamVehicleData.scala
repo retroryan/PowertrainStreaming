@@ -113,6 +113,8 @@ object StreamVehicleData {
     vehicleEventsStream
       .saveToCassandra("vehicle_tracking_app", "vehicle_events")
 
+    @transient lazy val dseSession = get_dse_session(dse_host, graph_name)
+
 
     vehicleEventsStream.foreachRDD(event_partitions => {
       event_partitions.foreachPartition(events => {
@@ -120,7 +122,7 @@ object StreamVehicleData {
 
 
         if (events.nonEmpty) {
-          processVehicleEventsStream(events, dse_host, graph_name)
+          processVehicleEventsStream(events, dseSession)
         }
 
       })
@@ -131,7 +133,7 @@ object StreamVehicleData {
     sparkStreamingContext.awaitTermination()
   }
 
-  def processVehicleEventsStream(events: Iterator[VehicleEvent], dse_host:String, graph_name:String) = {
+  def processVehicleEventsStream(events: Iterator[VehicleEvent], dseSession: DseSession) = {
 
     val create_event = new SimpleGraphStatement(
       """
@@ -158,16 +160,15 @@ object StreamVehicleData {
 
     events.foreach(vehicleEvent => {
       if (vehicleEvent.event_name == "crash" || vehicleEvent.event_name == "lap" || vehicleEvent.event_name == "finish") {
-        val session = get_dse_session(dse_host, graph_name)
 
-        val userFuture = session.executeGraphAsync(user_exists.set("account", vehicleEvent.vehicle_id).setReadTimeoutMillis(65000))
+        val userFuture = dseSession.executeGraphAsync(user_exists.set("account", vehicleEvent.vehicle_id).setReadTimeoutMillis(65000))
 
         Futures.addCallback(userFuture, new FutureCallback[GraphResultSet]() {
           def onSuccess(graphResultSet: GraphResultSet) {
             if (graphResultSet.getAvailableWithoutFetching > 0) {
               val user = graphResultSet.one()
 
-              processUser(session, create_event, create_event_edge, logger, vehicleEvent, user)
+              processUser(dseSession, create_event, create_event_edge, logger, vehicleEvent, user)
 
             }
             else {
