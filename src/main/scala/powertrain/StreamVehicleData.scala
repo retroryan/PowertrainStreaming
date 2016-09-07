@@ -54,6 +54,7 @@ object StreamVehicleData {
 
     val contextDebugStr: String = sparkConf.toDebugString
     localLogger.info("contextDebugStr = " + contextDebugStr)
+    localLogger.info("HOST = " + dse_host)
 
     def createStreamingContext(): StreamingContext = {
       @transient val newSsc = new StreamingContext(sparkConf, Seconds(1))
