@@ -213,7 +213,9 @@ object StreamVehicleData {
           logger.info(s"Error running graph query create_event ${vehicleEvent.collect_time}")
           logger.info(s"Error running graph query create_event ${vehicleEvent.event_name}")
           logger.info(s"Error running graph query create_event ${vehicleEvent.event_value}")
-          logger.info(s"Error running graph query create_event ${vehicleEvent.vehicle_id}")
+          logger.info(s"Error running graph query create_event ${vehicleEvent.elapsed_time}")
+          logger.info(s"Error running graph query create_event ${thrown}")
+
 
         }
       })
