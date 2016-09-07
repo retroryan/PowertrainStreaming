@@ -158,7 +158,7 @@ object StreamVehicleData {
 
     events.foreach(vehicleEvent => {
       if (vehicleEvent.event_name == "crash" || vehicleEvent.event_name == "lap" || vehicleEvent.event_name == "finish") {
-        val userFuture = session.executeGraphAsync(user_exists.set("account", vehicleEvent.vehicle_id))
+        val userFuture = session.executeGraphAsync(user_exists.set("account", vehicleEvent.vehicle_id).setReadTimeoutMillis(65000))
 
         Futures.addCallback(userFuture, new FutureCallback[GraphResultSet]() {
           def onSuccess(graphResultSet: GraphResultSet) {
@@ -194,7 +194,7 @@ object StreamVehicleData {
 
       logger.info(s"create_event query: ${create_event.getQueryString}")
 
-      val lapEventFuture: ListenableFuture[GraphResultSet] = session.executeGraphAsync(create_event)
+      val lapEventFuture: ListenableFuture[GraphResultSet] = session.executeGraphAsync(create_event.setReadTimeoutMillis(65000))
 
       Futures.addCallback(lapEventFuture, new FutureCallback[GraphResultSet]() {
         def onSuccess(graphResultSet: GraphResultSet) {
@@ -244,7 +244,7 @@ object StreamVehicleData {
       }
     }
 
-    session.executeGraphAsync(create_event_edge).addListener(runnable, MoreExecutors.sameThreadExecutor)
+    session.executeGraphAsync(create_event_edge.setReadTimeoutMillis(65000)).addListener(runnable, MoreExecutors.sameThreadExecutor)
   }
 
   def createRunnable(f: () => Unit): Runnable =
