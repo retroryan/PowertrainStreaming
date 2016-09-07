@@ -155,17 +155,20 @@ object StreamVehicleData {
       """)
 
     val logger = Logger.getLogger("StreamVehicleData")
-    val session = get_dse_session(dse_host, graph_name)
 
     events.foreach(vehicleEvent => {
       if (vehicleEvent.event_name == "crash" || vehicleEvent.event_name == "lap" || vehicleEvent.event_name == "finish") {
+        val session = get_dse_session(dse_host, graph_name)
+
         val userFuture = session.executeGraphAsync(user_exists.set("account", vehicleEvent.vehicle_id).setReadTimeoutMillis(65000))
 
         Futures.addCallback(userFuture, new FutureCallback[GraphResultSet]() {
           def onSuccess(graphResultSet: GraphResultSet) {
             if (graphResultSet.getAvailableWithoutFetching > 0) {
               val user = graphResultSet.one()
+
               processUser(session, create_event, create_event_edge, logger, vehicleEvent, user)
+
             }
             else {
               logger.info(s"Error query user_exists --> result set was empty")
@@ -179,7 +182,6 @@ object StreamVehicleData {
         })
       }
     })
-    session.close()
   }
 
 
@@ -246,6 +248,7 @@ object StreamVehicleData {
     }
 
     session.executeGraphAsync(create_event_edge.setReadTimeoutMillis(65000)).addListener(runnable, MoreExecutors.sameThreadExecutor)
+
   }
 
   def createRunnable(f: () => Unit): Runnable =
