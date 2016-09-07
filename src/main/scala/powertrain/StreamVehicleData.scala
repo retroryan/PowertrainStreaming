@@ -150,7 +150,7 @@ object StreamVehicleData {
     )
     val user_exists = new SimpleGraphStatement(
       """
-            g.V().has('account', account)
+            g.V().has('github_user','account', account)
       """)
 
     val logger = Logger.getLogger("StreamVehicleData")
