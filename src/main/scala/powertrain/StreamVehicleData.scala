@@ -185,12 +185,12 @@ object StreamVehicleData {
   def processUser(session: DseSession, create_event: SimpleGraphStatement, create_event_edge: SimpleGraphStatement, logger: Logger, vehicleEvent: VehicleEvent, user: GraphNode): Unit = {
     if (user != null) {
       create_event
-        .set("vehicle_id", vehicleEvent.vehicle_id)
-        .set("time_period", vehicleEvent.time_period)
-        .set("collect_time", vehicleEvent.collect_time)
-        .set("event_name", vehicleEvent.event_name)
-        .set("event_value", vehicleEvent.event_value)
-        .set("elapsed_time", vehicleEvent.elapsed_time)
+        .set("vehicle_id", vehicleEvent.vehicle_id.toString)
+        .set("time_period", vehicleEvent.time_period.toString)
+        .set("collect_time", vehicleEvent.collect_time.toString)
+        .set("event_name", vehicleEvent.event_name.toString)
+        .set("event_value", vehicleEvent.event_value.toString)
+        .set("elapsed_time", vehicleEvent.elapsed_time.toString)
 
       logger.info(s"create_event query: ${create_event.getQueryString}")
 
@@ -208,6 +208,13 @@ object StreamVehicleData {
 
         def onFailure(thrown: Throwable) {
           logger.info(s"Error running graph query create_event ${create_event.getQueryString}")
+          logger.info(s"Error running graph query create_event ${vehicleEvent.vehicle_id}")
+          logger.info(s"Error running graph query create_event ${vehicleEvent.time_period}")
+          logger.info(s"Error running graph query create_event ${vehicleEvent.collect_time}")
+          logger.info(s"Error running graph query create_event ${vehicleEvent.event_name}")
+          logger.info(s"Error running graph query create_event ${vehicleEvent.event_value}")
+          logger.info(s"Error running graph query create_event ${vehicleEvent.vehicle_id}")
+
         }
       })
 
