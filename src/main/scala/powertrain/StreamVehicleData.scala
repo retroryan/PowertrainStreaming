@@ -248,8 +248,23 @@ object StreamVehicleData {
       }
     }
 
-    session.executeGraphAsync(create_event_edge.setReadTimeoutMillis(65000)).addListener(runnable, MoreExecutors.sameThreadExecutor)
+//    session.executeGraphAsync(create_event_edge).addListener(runnable, MoreExecutors.sameThreadExecutor)
+    val event_edge_future: ListenableFuture[GraphResultSet] = session.executeGraphAsync(create_event_edge)
 
+    Futures.addCallback(event_edge_future, new FutureCallback[GraphResultSet]() {
+      def onSuccess(graphResultSet: GraphResultSet) {
+        if (graphResultSet.getAvailableWithoutFetching > 0) {
+          session.close()
+        }
+        else {
+          logger.info(s"Error closing session")
+        }
+      }
+
+      def onFailure(thrown: Throwable) {
+        logger.info(s"Error closeing dse session ${thrown}")
+      }
+    })
   }
 
   def createRunnable(f: () => Unit): Runnable =
