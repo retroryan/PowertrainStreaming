@@ -154,10 +154,10 @@ object StreamVehicleData {
       """)
 
     val logger = Logger.getLogger("StreamVehicleData")
+    val session = get_dse_session(dse_host, graph_name)
 
     events.foreach(vehicleEvent => {
       if (vehicleEvent.event_name == "crash" || vehicleEvent.event_name == "lap" || vehicleEvent.event_name == "finish") {
-        val session = get_dse_session(dse_host, graph_name)
         val userFuture = session.executeGraphAsync(user_exists.set("account", vehicleEvent.vehicle_id))
 
         Futures.addCallback(userFuture, new FutureCallback[GraphResultSet]() {
@@ -178,6 +178,7 @@ object StreamVehicleData {
         })
       }
     })
+    session.close()
   }
 
 
